@@ -70,9 +70,25 @@ int main(int argc, char *argv[]) {
     int threads_per_block = 256;
     int blocks_per_grid = (vector_size + threads_per_block - 1) / threads_per_block;
 
+    // CUDA event timing setup
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    // Record start event
+    cudaEventRecord(start, 0);
+
     // Execute kernel
     quantum_transform<<<blocks_per_grid, threads_per_block>>>(d_input, d_output, d_matrix, vector_size, qubit_index);
     cudaDeviceSynchronize();
+
+    // Record stop event
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop); // Ensure event has completed
+
+    // Measure elapsed time
+    float elapsed_time;
+    cudaEventElapsedTime(&elapsed_time, start, stop);
 
     // Print formatted output
     std::cout << std::fixed << std::setprecision(3);
@@ -80,10 +96,17 @@ int main(int argc, char *argv[]) {
         std::cout << d_output[i] << std::endl;
     }
 
+    // Print execution time
+    std::cout << "Kernel execution time: " << elapsed_time << " ms" << std::endl;
+
     // Free memory
     cudaFree(d_input);
     cudaFree(d_output);
     cudaFree(d_matrix);
+
+    // Destroy CUDA events
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
 
     return EXIT_SUCCESS;
 }
