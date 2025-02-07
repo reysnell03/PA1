@@ -72,12 +72,28 @@ int main(int argc, char *argv[]) {
     cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_matrix, h_matrix, matrix_bytes, cudaMemcpyHostToDevice);
 
+    // CUDA event timing setup
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
     // Launch CUDA kernel
     int threads_per_block = 256;
     int blocks_per_grid = (vector_size + threads_per_block - 1) / threads_per_block;
 
+    // Record start event
+    cudaEventRecord(start, 0);
+
     apply_transformation<<<blocks_per_grid, threads_per_block>>>(d_input, d_output, d_matrix, vector_size, qubit_idx);
-    
+
+    // Record stop event
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop); // Ensure event has completed
+
+    // Measure elapsed time
+    float elapsed_time;
+    cudaEventElapsedTime(&elapsed_time, start, stop);
+
     // Check for CUDA kernel errors
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -89,9 +105,12 @@ int main(int argc, char *argv[]) {
     cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
 
     // Output results
-   for (int i = 0; i < vector_size; ++i) {
-    std::cout << std::fixed << std::setprecision(3) << h_output[i] << std::endl;
+    for (int i = 0; i < vector_size; ++i) {
+        std::cout << std::fixed << std::setprecision(3) << h_output[i] << std::endl;
     }
+
+    // Report kernel execution time
+    std::cout << "Kernel execution time: " << elapsed_time << " ms" << std::endl;
 
     // Free GPU and CPU memory
     cudaFree(d_input);
@@ -100,6 +119,10 @@ int main(int argc, char *argv[]) {
     free(h_input);
     free(h_output);
     free(h_matrix);
+
+    // Destroy CUDA events
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
 
     cudaDeviceReset();
     return EXIT_SUCCESS;
