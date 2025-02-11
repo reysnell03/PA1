@@ -4,125 +4,103 @@
 #include <cuda_runtime.h>
 #include <iomanip>
 
-// CUDA kernel for matrix-vector transformation
-__global__ void apply_transformation(const float *input, float *output, const float *transformation, int length, int qubit) {
+__global__ void quantum_gate_transform(const float *input, float *output, const float *gate, int size, int target) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int mask = 1 << qubit;
-    int paired_idx = idx ^ mask;
+    int bit_flip = 1 << target;
+    int paired_idx = idx ^ bit_flip;
 
-    // Ensure index is within bounds
-    if (idx < length && paired_idx < length) {
-        if ((idx / mask) % 2 == 0) { 
-            output[idx] = transformation[0] * input[idx] + transformation[1] * input[paired_idx];
-            output[paired_idx] = transformation[2] * input[idx] + transformation[3] * input[paired_idx];
+    if (idx < size && paired_idx < size) {
+        if ((idx / bit_flip) % 2 == 0) { 
+            output[idx] = gate[0] * input[idx] + gate[1] * input[paired_idx];
+            output[paired_idx] = gate[2] * input[idx] + gate[3] * input[paired_idx];
         }
     }
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <input_file>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <input_file>\n";
         return EXIT_FAILURE;
     }
 
-    std::ifstream file(argv[1]);
-    if (!file) {
-        std::cerr << "Error: Unable to open file " << argv[1] << std::endl;
+    std::ifstream input_file(argv[1]);
+    if (!input_file) {
+        std::cerr << "Error: Unable to open file " << argv[1] << "\n";
         return EXIT_FAILURE;
     }
 
-    // Load transformation matrix
-    float transform_matrix[4];
+    float gate_matrix[4];
     for (int i = 0; i < 4; ++i) {
-        file >> transform_matrix[i];
+        input_file >> gate_matrix[i];
     }
 
-    // Load input vector and qubit index
-    std::vector<float> input_data;
-    float value;
-    while (file >> value) {
-        input_data.push_back(value);
+    std::vector<float> state_vector;
+    float val;
+    while (input_file >> val) {
+        state_vector.push_back(val);
     }
-    file.close();
+    input_file.close();
 
-    // Extract qubit index
-    int qubit_idx = static_cast<int>(input_data.back());
-    input_data.pop_back();
+    int qubit_index = static_cast<int>(state_vector.back());
+    state_vector.pop_back();
     
-    int vector_size = input_data.size();
-    size_t bytes = vector_size * sizeof(float);
-    size_t matrix_bytes = 4 * sizeof(float);
+    int vector_length = state_vector.size();
+    size_t state_bytes = vector_length * sizeof(float);
+    size_t gate_bytes = 4 * sizeof(float);
 
-    // Allocate host memory
-    float *h_input = (float*)malloc(bytes);
-    float *h_output = (float*)malloc(bytes);
-    float *h_matrix = (float*)malloc(matrix_bytes);
+    float *host_input = (float*)malloc(state_bytes);
+    float *host_output = (float*)malloc(state_bytes);
+    float *host_gate = (float*)malloc(gate_bytes);
 
-    // Copy data to host arrays
-    std::copy(input_data.begin(), input_data.end(), h_input);
-    std::copy(transform_matrix, transform_matrix + 4, h_matrix);
+    std::copy(state_vector.begin(), state_vector.end(), host_input);
+    std::copy(gate_matrix, gate_matrix + 4, host_gate);
 
-    // Allocate device memory
-    float *d_input, *d_output, *d_matrix;
-    cudaMalloc((void**)&d_input, bytes);
-    cudaMalloc((void**)&d_output, bytes);
-    cudaMalloc((void**)&d_matrix, matrix_bytes);
+    float *device_input, *device_output, *device_gate;
+    cudaMalloc((void**)&device_input, state_bytes);
+    cudaMalloc((void**)&device_output, state_bytes);
+    cudaMalloc((void**)&device_gate, gate_bytes);
 
-    // Copy data to device
-    cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_matrix, h_matrix, matrix_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_input, host_input, state_bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_gate, host_gate, gate_bytes, cudaMemcpyHostToDevice);
 
-    // CUDA event timing setup
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    cudaEvent_t start_time, stop_time;
+    cudaEventCreate(&start_time);
+    cudaEventCreate(&stop_time);
 
-    // Launch CUDA kernel
     int threads_per_block = 256;
-    int blocks_per_grid = (vector_size + threads_per_block - 1) / threads_per_block;
+    int blocks_per_grid = (vector_length + threads_per_block - 1) / threads_per_block;
 
-    // Record start event
-    cudaEventRecord(start, 0);
+    cudaEventRecord(start_time, 0);
+    quantum_gate_transform<<<blocks_per_grid, threads_per_block>>>(device_input, device_output, device_gate, vector_length, qubit_index);
+    cudaEventRecord(stop_time, 0);
+    cudaEventSynchronize(stop_time);
 
-    apply_transformation<<<blocks_per_grid, threads_per_block>>>(d_input, d_output, d_matrix, vector_size, qubit_idx);
+    float execution_duration;
+    cudaEventElapsedTime(&execution_duration, start_time, stop_time);
 
-    // Record stop event
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop); // Ensure event has completed
-
-    // Measure elapsed time
-    float elapsed_time;
-    cudaEventElapsedTime(&elapsed_time, start, stop);
-
-    // Check for CUDA kernel errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        std::cerr << "CUDA Error: " << cudaGetErrorString(err) << std::endl;
+    cudaError_t error_status = cudaGetLastError();
+    if (error_status != cudaSuccess) {
+        std::cerr << "CUDA Error: " << cudaGetErrorString(error_status) << "\n";
         return EXIT_FAILURE;
     }
 
-    // Copy results back to host
-    cudaMemcpy(h_output, d_output, bytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(host_output, device_output, state_bytes, cudaMemcpyDeviceToHost);
 
-    // Output results
-    for (int i = 0; i < vector_size; ++i) {
-        std::cout << std::fixed << std::setprecision(3) << h_output[i] << std::endl;
+    for (int i = 0; i < vector_length; ++i) {
+        std::cout << std::fixed << std::setprecision(3) << host_output[i] << "\n";
     }
 
-    // Report kernel execution time
-    std::cout << "Kernel execution time: " << elapsed_time << " ms" << std::endl;
+    std::cout << "Execution Time: " << execution_duration << " ms\n";
 
-    // Free GPU and CPU memory
-    cudaFree(d_input);
-    cudaFree(d_output);
-    cudaFree(d_matrix);
-    free(h_input);
-    free(h_output);
-    free(h_matrix);
+    cudaFree(device_input);
+    cudaFree(device_output);
+    cudaFree(device_gate);
+    free(host_input);
+    free(host_output);
+    free(host_gate);
 
-    // Destroy CUDA events
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    cudaEventDestroy(start_time);
+    cudaEventDestroy(stop_time);
 
     cudaDeviceReset();
     return EXIT_SUCCESS;
