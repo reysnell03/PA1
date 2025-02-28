@@ -1,23 +1,13 @@
-NVCC := /usr/local/cuda/bin/nvcc
-CCFLAGS := -O2
+NVCC := nvcc
+CFLAGS := -O2
 
-build: quamsimV1 quamsimV2
+all: quamsimV1 quamsimV2
 
-quamsimV1.o:quamsimV1.cu
-	$(NVCC) $(INCLUDES) $(CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+quamsimV1: quamsimV1.cu
+	$(NVCC) $(CFLAGS) quamsimV1.cu -o quamsimV1
 
-quamsimV1: quamsimV1.o
-	$(NVCC) $(LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-
-quamsimV2.o:quamsimV2.cu
-	$(NVCC) $(INCLUDES) $(CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
-
-quamsimV2: quamsimV2.o
-	$(NVCC) $(LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-
-run: build
-	$(EXEC) ./quamsimV1
-	$(EXEC) ./quamsimV2
+quamsimV2: quamsimV2.cu
+	$(NVCC) $(CFLAGS) quamsimV2.cu -o quamsimV2
 
 clean:
-	rm -f quamsimV1 quamsimV2 *.o
+	rm -f quamsimV1 quamsimV2
